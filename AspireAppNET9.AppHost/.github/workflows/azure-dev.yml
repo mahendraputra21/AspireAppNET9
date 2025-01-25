@@ -64,9 +64,6 @@ jobs:
             echo "Solution Name: $SOLUTION_NAME"
             echo "SOLUTION_NAME=$SOLUTION_NAME" >> $GITHUB_ENV
 
-      - name: Initialize azd project
-        run: azd init ${{ env.SOLUTION_NAME }}
-
       - name: Provision Infrastructure
         run: azd provision --no-prompt
         working-directory: ${{ env.SOLUTION_NAME }}.AppHost
