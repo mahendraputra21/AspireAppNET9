@@ -1,18 +1,18 @@
-# Run when commits are pushed to master
+name: .NET 9 Aspire to Azure Deployment
+# For more information on this YAML file, please reference blog: https://agramont.net/blog/devops-intro-deploy-net-aspire-azure-github-actions
+
 on:
   workflow_dispatch:
   push:
     # Run when commits are pushed to mainline branch (main or master)
     # Set this to the mainline branch you are using
     branches:
-      - master
+     - master
+     - main
 
-# Set up permissions for deploying with secretless Azure federated credentials
-# https://learn.microsoft.com/en-us/azure/developer/github/connect-from-azure?tabs=azure-portal%2Clinux#set-up-azure-login-with-openid-connect-authentication
 permissions:
   id-token: write
   contents: read
-
 
 jobs:
   build:
@@ -21,17 +21,22 @@ jobs:
       AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
       AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
       AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
       AZURE_ENV_NAME: ${{ vars.AZURE_ENV_NAME }}
       AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Install azd
-        uses: Azure/setup-azd@v1.0.0
+        uses: Azure/setup-azd@v2
+
       - name: Install .NET Aspire workload
         run: dotnet workload install aspire
 
       - name: Log in with Azure (Federated Credentials)
+        if: ${{ env.AZURE_CLIENT_ID != '' }}
         run: |
           azd auth login `
             --client-id "$Env:AZURE_CLIENT_ID" `
@@ -39,11 +44,39 @@ jobs:
             --tenant-id "$Env:AZURE_TENANT_ID"
         shell: pwsh
 
+      - name: Log in with Azure (Client Credentials)
+        if: ${{ env.AZURE_CREDENTIALS != '' }}
+        run: |
+          $info = $Env:AZURE_CREDENTIALS | ConvertFrom-Json -AsHashtable;
+          Write-Host "::add-mask::$($info.clientSecret)"
+
+          azd auth login `
+            --client-id "$($info.clientId)" `
+            --client-secret "$($info.clientSecret)" `
+            --tenant-id "$($info.tenantId)"
+        shell: pwsh
+
+      - name: Extract Solution Name
+        id: extract_solution_name
+        run: |
+            # Extract the solution name from the .sln file
+            SOLUTION_NAME=$(ls *.sln | sed 's/\.sln$//')
+            echo "Solution Name: $SOLUTION_NAME"
+            echo "SOLUTION_NAME=$SOLUTION_NAME" >> $GITHUB_ENV
+
+      - name: Initialize azd project
+        run: azd init --template-name ${{ env.SOLUTION_NAME }}
 
       - name: Provision Infrastructure
         run: azd provision --no-prompt
+        working-directory: ${{ env.SOLUTION_NAME }}.AppHost
+
+      - name: Refresh azd env (pulls latest infrastructure provision)
+        run: azd env refresh --no-prompt
         env:
-          AZD_INITIAL_ENVIRONMENT_CONFIG: ${{ secrets.AZD_INITIAL_ENVIRONMENT_CONFIG }}
+          AZURE_LOCATION: ${{ env.AZURE_LOCATION }}
+        working-directory: ${{ env.SOLUTION_NAME }}.AppHost
 
       - name: Deploy Application
         run: azd deploy --no-prompt
+        working-directory: ${{ env.SOLUTION_NAME }}.AppHost
