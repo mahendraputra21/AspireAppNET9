@@ -29,8 +29,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up .NET SDK 9.0  
+        uses: actions/setup-dotnet@v2  
+        with:  
+          dotnet-version: '9.0.102'
+
       - name: Install azd
-        uses: Azure/setup-azd@v2
+        uses: Azure/setup-azd@v0.1.0
 
       - name: Install .NET Aspire workload
         run: dotnet workload install aspire
