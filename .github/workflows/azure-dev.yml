@@ -1,4 +1,4 @@
-name: .NET 9 Aspire to Azure Deployment (DEV)
+name: .NET 9 Aspire to Azure Deployment
 
 on:
   workflow_dispatch:
@@ -48,6 +48,9 @@ jobs:
       - name: Install azd
         uses: Azure/setup-azd@v0.1.0
 
+      - name: Add azd to PATH
+        run: echo "$HOME/.azd/bin" >> $GITHUB_PATH
+
       - name: Install .NET Aspire workload
         run: dotnet workload install aspire
 
@@ -79,26 +82,34 @@ jobs:
           name: build-artifacts
           path: ${{ env.SOLUTION_NAME }}.AppHost/bin/Release/net9.0/
 
+      - name: Install azd
+        uses: Azure/setup-azd@v0.1.0
+
+      - name: Add azd to PATH
+        run: echo "$HOME/.azd/bin" >> $GITHUB_PATH
+
       - name: Log in with Azure (Federated Credentials)
         if: ${{ env.AZURE_CLIENT_ID != '' }}
         run: |
-          azd auth login `
-            --client-id "$Env:AZURE_CLIENT_ID" `
-            --federated-credential-provider "github" `
-            --tenant-id "$Env:AZURE_TENANT_ID"
-        shell: pwsh
+          azd auth login \
+            --client-id "$AZURE_CLIENT_ID" \
+            --federated-credential-provider "github" \
+            --tenant-id "$AZURE_TENANT_ID"
 
       - name: Log in with Azure (Client Credentials)
         if: ${{ env.AZURE_CREDENTIALS != '' }}
         run: |
-          $info = $Env:AZURE_CREDENTIALS | ConvertFrom-Json -AsHashtable;
-          Write-Host "::add-mask::$($info.clientSecret)"
+          info=$(echo "$AZURE_CREDENTIALS" | jq -r '. | @base64')
+          clientId=$(echo "$info" | base64 --decode | jq -r '.clientId')
+          clientSecret=$(echo "$info" | base64 --decode | jq -r '.clientSecret')
+          tenantId=$(echo "$info" | base64 --decode | jq -r '.tenantId')
 
-          azd auth login `
-            --client-id "$($info.clientId)" `
-            --client-secret "$($info.clientSecret)" `
-            --tenant-id "$($info.tenantId)"
-        shell: pwsh
+          echo "::add-mask::$clientSecret"
+
+          azd auth login \
+            --client-id "$clientId" \
+            --client-secret "$clientSecret" \
+            --tenant-id "$tenantId"
 
       - name: Provision Infrastructure
         run: azd provision --no-prompt
