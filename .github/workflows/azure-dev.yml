@@ -69,6 +69,10 @@ jobs:
             echo "Solution Name: $SOLUTION_NAME"
             echo "SOLUTION_NAME=$SOLUTION_NAME" >> $GITHUB_ENV
 
+      - name: Run Tests
+        run: dotnet test
+        working-directory: ${{ env.SOLUTION_NAME }}.Tests
+
       - name: Provision Infrastructure
         run: azd provision --no-prompt
         working-directory: ${{ env.SOLUTION_NAME }}.AppHost
