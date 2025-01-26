@@ -1,14 +1,20 @@
-name: .NET 9 Aspire to Azure Deployment
-# For more information on this YAML file, please reference blog: https://agramont.net/blog/devops-intro-deploy-net-aspire-azure-github-actions
+name: .NET 9 Aspire to Azure Deployment (DEV)
 
 on:
   workflow_dispatch:
   push:
-    # Run when commits are pushed to mainline branch (main or master)
-    # Set this to the mainline branch you are using
     branches:
      - master
      - main
+
+# Global environment variables
+env:
+  AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+  AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+  AZURE_ENV_NAME: ${{ vars.AZURE_ENV_NAME }}
+  AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
 
 permissions:
   id-token: write
@@ -17,28 +23,61 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
-      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
-      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
-      AZURE_ENV_NAME: ${{ vars.AZURE_ENV_NAME }}
-      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up .NET SDK 9.0  
-        uses: actions/setup-dotnet@v2  
-        with:  
+      - name: Set up .NET SDK 9.0 and Aspire Workload
+        uses: actions/setup-dotnet@v2
+        with:
           dotnet-version: '9.0.102'
+
+      - name: Cache .NET dependencies
+        uses: actions/cache@v3
+        id: dotnet-cache
+        with:
+          path: |
+            ~/.nuget/packages
+            **/bin
+            **/obj
+          key: dotnet-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            dotnet-${{ runner.os }}-
 
       - name: Install azd
         uses: Azure/setup-azd@v0.1.0
 
       - name: Install .NET Aspire workload
         run: dotnet workload install aspire
+
+      - name: Extract Solution Name
+        id: extract_solution_name
+        run: |
+          SOLUTION_NAME=$(ls *.sln | sed 's/\.sln$//')
+          echo "Solution Name: $SOLUTION_NAME"
+          echo "SOLUTION_NAME=$SOLUTION_NAME" >> $GITHUB_ENV
+
+      - name: Build Application
+        run: dotnet build --configuration Release
+        working-directory: ${{ env.SOLUTION_NAME }}.AppHost
+
+      - name: Archive Build Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-artifacts
+          path: ${{ env.SOLUTION_NAME }}.AppHost/bin/Release/net9.0/
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: build-artifacts
+          path: ${{ env.SOLUTION_NAME }}.AppHost/bin/Release/net9.0/
 
       - name: Log in with Azure (Federated Credentials)
         if: ${{ env.AZURE_CLIENT_ID != '' }}
@@ -60,14 +99,6 @@ jobs:
             --client-secret "$($info.clientSecret)" `
             --tenant-id "$($info.tenantId)"
         shell: pwsh
-
-      - name: Extract Solution Name
-        id: extract_solution_name
-        run: |
-            # Extract the solution name from the .sln file
-            SOLUTION_NAME=$(ls *.sln | sed 's/\.sln$//')
-            echo "Solution Name: $SOLUTION_NAME"
-            echo "SOLUTION_NAME=$SOLUTION_NAME" >> $GITHUB_ENV
 
       - name: Provision Infrastructure
         run: azd provision --no-prompt
