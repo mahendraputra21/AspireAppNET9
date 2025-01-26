@@ -61,12 +61,12 @@ jobs:
       - name: Extract Solution Name
         id: extract_solution_name
         run: |
-            # Extract the solution name from the .sln file
-            SOLUTION_NAME=$(ls *.sln | sed 's/\.sln$//')
-            echo "Solution Name: $SOLUTION_NAME"
-            echo "SOLUTION_NAME=$SOLUTION_NAME" >> $GITHUB_ENV
-            # Set the solution name as a job output
-            echo "solution_name=$SOLUTION_NAME" >> $GITHUB_OUTPUT
+          # Extract the solution name from the .sln file
+          SOLUTION_NAME=$(ls *.sln | sed 's/\.sln$//')
+          echo "Solution Name: $SOLUTION_NAME"
+          echo "SOLUTION_NAME=$SOLUTION_NAME" >> $GITHUB_ENV
+          # Set the solution name as a job output
+          echo "solution_name=$SOLUTION_NAME" >> $GITHUB_OUTPUT
 
       - name: Build Solution
         run: dotnet build --configuration Release
