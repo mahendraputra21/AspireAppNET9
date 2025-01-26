@@ -111,6 +111,10 @@ jobs:
             --client-secret "$clientSecret" \
             --tenant-id "$tenantId"
 
+      - name: Initialize azd Project
+        run: azd init --no-prompt
+        working-directory: ${{ env.SOLUTION_NAME }}.AppHost
+
       - name: Provision Infrastructure
         run: azd provision --no-prompt
         working-directory: ${{ env.SOLUTION_NAME }}.AppHost
