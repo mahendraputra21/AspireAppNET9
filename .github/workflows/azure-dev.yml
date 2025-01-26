@@ -1,4 +1,4 @@
-name: .NET 9 Aspire to Azure Deployment
+name: .NET 9 Aspire to Azure Deployment (DEV)
 
 on:
   workflow_dispatch:
@@ -82,6 +82,14 @@ jobs:
           name: build-artifacts
           path: ${{ env.SOLUTION_NAME }}.AppHost/bin/Release/net9.0/
 
+      - name: Extract Working Directory
+        id: extract_working_dir
+        run: |
+          # Extract the parent directory of the build artifacts path
+          WORKING_DIR=$(dirname "${{ env.SOLUTION_NAME }}.AppHost/bin/Release/net9.0/")
+          echo "Working Directory: $WORKING_DIR"
+          echo "WORKING_DIR=$WORKING_DIR" >> $GITHUB_ENV
+
       - name: Install azd
         uses: Azure/setup-azd@v0.1.0
 
@@ -113,14 +121,14 @@ jobs:
 
       - name: Provision Infrastructure
         run: azd provision --no-prompt
-        working-directory: ${{ env.SOLUTION_NAME }}.AppHost
+        working-directory: ${{ env.WORKING_DIR }}
 
       - name: Refresh azd env (pulls latest infrastructure provision)
         run: azd env refresh --no-prompt
         env:
           AZURE_LOCATION: ${{ env.AZURE_LOCATION }}
-        working-directory: ${{ env.SOLUTION_NAME }}.AppHost
+        working-directory: ${{ env.WORKING_DIR }}
 
       - name: Deploy Application
         run: azd deploy --no-prompt
-        working-directory: ${{ env.SOLUTION_NAME }}.AppHost
+        working-directory: ${{ env.WORKING_DIR }}
