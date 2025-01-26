@@ -1,20 +1,14 @@
-name: .NET 9 Aspire to Azure Deployment (DEV)
+name: .NET 9 Aspire to Azure Deployment
+# For more information on this YAML file, please reference blog: https://agramont.net/blog/devops-intro-deploy-net-aspire-azure-github-actions
 
 on:
   workflow_dispatch:
   push:
+    # Run when commits are pushed to mainline branch (main or master)
+    # Set this to the mainline branch you are using
     branches:
      - master
      - main
-
-# Global environment variables
-env:
-  AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
-  AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
-  AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-  AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
-  AZURE_ENV_NAME: ${{ vars.AZURE_ENV_NAME }}
-  AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
 
 permissions:
   id-token: write
@@ -23,112 +17,100 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+      AZURE_ENV_NAME: ${{ vars.AZURE_ENV_NAME }}
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up .NET SDK 9.0 and Aspire Workload
-        uses: actions/setup-dotnet@v2
-        with:
+      - name: Set up .NET SDK 9.0  
+        uses: actions/setup-dotnet@v2  
+        with:  
           dotnet-version: '9.0.102'
-
-      - name: Cache .NET dependencies
-        uses: actions/cache@v3
-        id: dotnet-cache
-        with:
-          path: |
-            ~/.nuget/packages
-            **/bin
-            **/obj
-          key: dotnet-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
-          restore-keys: |
-            dotnet-${{ runner.os }}-
 
       - name: Install azd
         uses: Azure/setup-azd@v0.1.0
-
-      - name: Add azd to PATH
-        run: echo "$HOME/.azd/bin" >> $GITHUB_PATH
 
       - name: Install .NET Aspire workload
         run: dotnet workload install aspire
 
-      - name: Extract Solution Name
-        id: extract_solution_name
-        run: |
-          SOLUTION_NAME=$(ls *.sln | sed 's/\.sln$//')
-          echo "Solution Name: $SOLUTION_NAME"
-          echo "SOLUTION_NAME=$SOLUTION_NAME" >> $GITHUB_ENV
-
-      - name: Build Application
-        run: dotnet build --configuration Release
-        working-directory: ${{ env.SOLUTION_NAME }}.AppHost
-
-      - name: Archive Build Artifacts
-        uses: actions/upload-artifact@v3
-        with:
-          name: build-artifacts
-          path: ${{ env.SOLUTION_NAME }}.AppHost/bin/Release/net9.0/
-
-  publish:
-    runs-on: ubuntu-latest
-    needs: build
-
-    steps:
-      - name: Download Build Artifacts
-        uses: actions/download-artifact@v3
-        with:
-          name: build-artifacts
-          path: ${{ env.SOLUTION_NAME }}.AppHost/bin/Release/net9.0/
-
-      - name: Extract Working Directory
-        id: extract_working_dir
-        run: |
-          # Extract the parent directory of the build artifacts path
-          WORKING_DIR=$(dirname "${{ env.SOLUTION_NAME }}.AppHost/bin/Release/net9.0/")
-          echo "Working Directory: $WORKING_DIR"
-          echo "WORKING_DIR=$WORKING_DIR" >> $GITHUB_ENV
-
-      - name: Install azd
-        uses: Azure/setup-azd@v0.1.0
-
-      - name: Add azd to PATH
-        run: echo "$HOME/.azd/bin" >> $GITHUB_PATH
-
       - name: Log in with Azure (Federated Credentials)
         if: ${{ env.AZURE_CLIENT_ID != '' }}
         run: |
-          azd auth login \
-            --client-id "$AZURE_CLIENT_ID" \
-            --federated-credential-provider "github" \
-            --tenant-id "$AZURE_TENANT_ID"
+          azd auth login `
+            --client-id "$Env:AZURE_CLIENT_ID" `
+            --federated-credential-provider "github" `
+            --tenant-id "$Env:AZURE_TENANT_ID"
+        shell: pwsh
 
       - name: Log in with Azure (Client Credentials)
         if: ${{ env.AZURE_CREDENTIALS != '' }}
         run: |
-          info=$(echo "$AZURE_CREDENTIALS" | jq -r '. | @base64')
-          clientId=$(echo "$info" | base64 --decode | jq -r '.clientId')
-          clientSecret=$(echo "$info" | base64 --decode | jq -r '.clientSecret')
-          tenantId=$(echo "$info" | base64 --decode | jq -r '.tenantId')
+          $info = $Env:AZURE_CREDENTIALS | ConvertFrom-Json -AsHashtable;
+          Write-Host "::add-mask::$($info.clientSecret)"
 
-          echo "::add-mask::$clientSecret"
+          azd auth login `
+            --client-id "$($info.clientId)" `
+            --client-secret "$($info.clientSecret)" `
+            --tenant-id "$($info.tenantId)"
+        shell: pwsh
 
-          azd auth login \
-            --client-id "$clientId" \
-            --client-secret "$clientSecret" \
-            --tenant-id "$tenantId"
+      - name: Extract Solution Name
+        id: extract_solution_name
+        run: |
+            # Extract the solution name from the .sln file
+            SOLUTION_NAME=$(ls *.sln | sed 's/\.sln$//')
+            echo "Solution Name: $SOLUTION_NAME"
+            echo "SOLUTION_NAME=$SOLUTION_NAME" >> $GITHUB_ENV
+
+      - name: Build Solution
+        run: dotnet build --configuration Release
+        working-directory: ${{ env.SOLUTION_NAME }}.AppHost
+
+      - name: Publish Artifacts
+        run: dotnet publish --configuration Release --output ./publish
+        working-directory: ${{ env.SOLUTION_NAME }}.AppHost
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ env.SOLUTION_NAME }}-artifacts
+          path: ${{ env.SOLUTION_NAME }}.AppHost/publish
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+      AZURE_ENV_NAME: ${{ vars.AZURE_ENV_NAME }}
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: ${{ env.SOLUTION_NAME }}-artifacts
+          path: ${{ env.SOLUTION_NAME }}.AppHost/publish
 
       - name: Provision Infrastructure
         run: azd provision --no-prompt
-        working-directory: ${{ env.WORKING_DIR }}
+        working-directory: ${{ env.SOLUTION_NAME }}.AppHost
 
       - name: Refresh azd env (pulls latest infrastructure provision)
         run: azd env refresh --no-prompt
         env:
           AZURE_LOCATION: ${{ env.AZURE_LOCATION }}
-        working-directory: ${{ env.WORKING_DIR }}
+        working-directory: ${{ env.SOLUTION_NAME }}.AppHost
 
       - name: Deploy Application
         run: azd deploy --no-prompt
-        working-directory: ${{ env.WORKING_DIR }}
+        working-directory: ${{ env.SOLUTION_NAME }}.AppHost
