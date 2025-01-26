@@ -112,7 +112,7 @@ jobs:
             --tenant-id "$tenantId"
 
       - name: Initialize azd Project
-        run: azd init --no-prompt
+        run: azd init --no-prompt --template todo-dotnet
         working-directory: ${{ env.SOLUTION_NAME }}.AppHost
 
       - name: Provision Infrastructure
